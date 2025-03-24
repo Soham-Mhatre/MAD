@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1082115627211",
+    "project_id": "nifty-12516",
+    "storage_bucket": "nifty-12516.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1082115627211:android:2780367221a3b7e2f0634e",
+        "android_client_info": {
+          "package_name": "com.example.madproject"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1082115627211-lpn4ueo7vtkieuuu9vg58fqikbrf6qtk.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyANZWa7vRocjOhXcIokn4jRhYV1dkLXfAk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1082115627211-lpn4ueo7vtkieuuu9vg58fqikbrf6qtk.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
