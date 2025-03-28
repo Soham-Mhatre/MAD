@@ -31,12 +31,30 @@ class AuthService {
   Future<User?> signIn(String email, String password) async {
     try {
       UserCredential result = await _auth.signInWithEmailAndPassword(
-          email: email,
-          password: password
+        email: email.trim(),
+        password: password.trim(),
       );
+
+      // Verify user document exists
+      DocumentSnapshot userDoc = await _firestore
+          .collection('users')
+          .doc(result.user?.uid)
+          .get();
+
+      if (!userDoc.exists) {
+        await _firestore.collection('users').doc(result.user?.uid).set({
+          'uid': result.user?.uid,
+          'email': email,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+
       return result.user;
+    } on FirebaseAuthException catch (e) {
+      print('Login Error: ${e.code} - ${e.message}');
+      rethrow; // For error handling in UI
     } catch (e) {
-      print(e);
+      print('General Error: $e');
       return null;
     }
   }
