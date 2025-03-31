@@ -12,14 +12,13 @@ class AuthService {
           password: password
       );
 
-      // Force document creation with merge
-      await _firestore.collection('users').doc(result.user?.uid).set({
-        'uid': result.user?.uid,
-        'email': email,
-        'name': name,
-        'stocks': [],
-        'createdAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      // Create default watchlist
+      await _firestore.collection('users/${result.user!.uid}/watchlists').add({
+        'name': 'My First Watchlist',
+        'items': [],
+        'sortOrder': 'manual',
+        'createdAt': FieldValue.serverTimestamp()
+      });
 
       return result.user;
     } catch (e) {
@@ -27,7 +26,6 @@ class AuthService {
       return null;
     }
   }
-
   Future<User?> signIn(String email, String password) async {
     try {
       UserCredential result = await _auth.signInWithEmailAndPassword(
