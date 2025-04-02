@@ -3,86 +3,97 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:http/http.dart' as http;
 
 class StockService {
-  final String _apiKey = '4ZGWMFTHQ74P2RMZ';
-  static const _maxRetries = 2;
-
-  // Unified response processor
-  Map<String, dynamic> _processResponse(http.Response response) {
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      if (data.isEmpty || data.containsKey('Error Message')) {
-        return {'error': 'Invalid API response'};
-      }
-      return data;
-    }
-    return {'error': 'HTTP ${response.statusCode}'};
-  }
-
-  // Generic API caller with retry logic
-  Future<Map<String, dynamic>> _callAPI(String url) async {
-    for (var i = 0; i < _maxRetries; i++) {
-      try {
-        final response = await http.get(Uri.parse(url));
-        final processed = _processResponse(response);
-        if (!processed.containsKey('error')) return processed;
-
-        if (i == _maxRetries - 1) return processed;
-        await Future.delayed(const Duration(seconds: 1));
-      } catch (e) {
-        if (i == _maxRetries - 1) return {'error': 'Connection failed'};
-        await Future.delayed(const Duration(seconds: 1));
-      }
-    }
-    return {'error': 'Unknown error'};
-  }
+  final String _apiKey = '4DP9VMC2YY4QBBSM'; // Replace with actual key
+  static const _maxRetries = 3;
+  static const _retryDelay = Duration(seconds: 2);
 
   Future<Map<String, dynamic>> getStockData(String symbol) async {
-    final result = await _callAPI(
-        'https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=$symbol&apikey=$_apiKey'
-    );
-
-    if (result['Global Quote'] == null) {
+    // Validate symbol first
+    if (symbol.isEmpty || !RegExp(r'^[A-Za-z]+$').hasMatch(symbol)) {
       return {'error': 'Invalid stock symbol'};
     }
-    return result;
+
+    for (int attempt = 0; attempt < _maxRetries; attempt++) {
+      try {
+        final response = await http.get(Uri.parse(
+            'https://www.alphavantage.co/query?'
+                'function=GLOBAL_QUOTE&'
+                'symbol=$symbol&'
+                'apikey=$_apiKey'
+        )).timeout(const Duration(seconds: 10));
+
+        // Log raw response for debugging
+        print('API Response: ${response.body}');
+
+        if (response.statusCode != 200) {
+          return {'error': 'HTTP Error ${response.statusCode}'};
+        }
+
+        final data = json.decode(response.body);
+
+        // Handle different API response cases
+        if (data.containsKey('Information')) {
+          return {'error': 'API Limit Reached - Try Again Later'};
+        }
+        if (data.containsKey('Error Message')) {
+          return {'error': 'Invalid Stock Symbol'};
+        }
+        if (data.containsKey('Note')) {
+          await Future.delayed(_retryDelay);
+          continue; // Retry on API throttling
+        }
+        if (data['Global Quote'] == null ||
+            data['Global Quote']['05. price'] == null) {
+          return {'error': 'Invalid API Response'};
+        }
+
+        return data;
+      } catch (e) {
+        if (attempt == _maxRetries - 1) {
+          return {'error': 'Connection Failed: ${e.toString()}'};
+        }
+        await Future.delayed(_retryDelay);
+      }
+    }
+    return {'error': 'Unknown Error'};
   }
 
-  Future<Map<String, dynamic>> getGlobalQuote(String symbol) async {
-    return await _callAPI(
-        'https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=$symbol&apikey=$_apiKey'
-    );
-  }
-
-
-  Future<Map<String, dynamic>> getBatchData(List<String> symbols) async {
-    return await _callAPI(
-        'https://www.alphavantage.co/query?function=BATCH_STOCK_QUOTES'
-            '&symbols=${symbols.join(',')}&apikey=$_apiKey'
-    );
-  }
   Future<Map<String, dynamic>> getTimeSeries(String symbol, String interval) async {
-    final response = await http.get(
-      Uri.parse(
+    try {
+      final response = await http.get(Uri.parse(
           'https://www.alphavantage.co/query?'
               'function=TIME_SERIES_INTRADAY&'
               'symbol=$symbol&'
-              'interval=${interval}min&'  // Supported values: 1, 5, 15, 30, 60
+              'interval=${interval}min&'
               'outputsize=compact&'
-              'apikey=$_apiKey'
-      ),
-    );
-    return _processResponse(response);
+              'apikey=$_apiKey'));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      return {'error': 'API error ${response.statusCode}'};
+    } catch (e) {
+      return {'error': 'Connection failed'};
+    }
   }
 
   List<FlSpot> parseTimeSeries(Map<String, dynamic> data) {
-    final timeSeries = data['Time Series (${data['metaData']['4. Interval']})'] as Map<String, dynamic>;
-    final List<FlSpot> points = [];
+    try {
+      final metaKey = data['Meta Data'];
+      final interval = metaKey['4. Interval'] ?? '15min';
+      final timeSeriesKey = 'Time Series ($interval)';
 
-    timeSeries.entries.toList().reversed.toList().asMap().forEach((index, entry) {
-      final closePrice = double.parse(entry.value['4. close']);
-      points.add(FlSpot(index.toDouble(), closePrice));
-    });
+      final timeSeries = data[timeSeriesKey] as Map<String, dynamic>;
+      final List<FlSpot> points = [];
 
-    return points;
+      timeSeries.entries.toList().reversed.toList().asMap().forEach((index, entry) {
+        final closePrice = double.tryParse(entry.value['4. close']) ?? 0.0;
+        points.add(FlSpot(index.toDouble(), closePrice));
+      });
+
+      return points;
+    } catch (e) {
+      return [];
+    }
   }
 }

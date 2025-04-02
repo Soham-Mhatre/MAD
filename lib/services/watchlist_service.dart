@@ -3,10 +3,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class WatchlistService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  // Add this method to resolve getWatchlists error
   Stream<QuerySnapshot> getWatchlists(String userId) {
     return _firestore
         .collection('users/$userId/watchlists')
-        .orderBy('createdAt')
+        .orderBy('createdAt', descending: true)
         .snapshots();
   }
 
@@ -17,16 +18,19 @@ class WatchlistService {
     required String type,
   }) async {
     try {
-      final watchlistRef = _firestore
+      final docRef = _firestore
           .collection('users/$userId/watchlists')
           .doc(watchlistId);
 
-      await watchlistRef.update({
-        'items': FieldValue.arrayUnion([{
-          'symbol': symbol,
-          'type': type,
-          'addedAt': DateTime.now().toIso8601String(),
-        }])
+      // Use DateTime for array items
+      final newItem = {
+        'symbol': symbol.toUpperCase(),
+        'type': type,
+        'addedAt': DateTime.now().toIso8601String(), // String timestamp
+      };
+
+      await docRef.update({
+        'items': FieldValue.arrayUnion([newItem])
       });
     } catch (e) {
       print('WatchlistService Error: $e');

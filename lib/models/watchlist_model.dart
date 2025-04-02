@@ -5,12 +5,14 @@ class Watchlist {
   final String name;
   final List<Map<String, dynamic>> items;
   final String sortOrder;
+  final Timestamp createdAt;
 
   Watchlist({
     required this.id,
     required this.name,
     required this.items,
     required this.sortOrder,
+    required this.createdAt,
   });
 
   factory Watchlist.fromFirestore(DocumentSnapshot doc) {
@@ -20,6 +22,7 @@ class Watchlist {
       name: data['name'] ?? 'Unnamed List',
       items: List<Map<String, dynamic>>.from(data['items'] ?? []),
       sortOrder: data['sortOrder'] ?? 'manual',
+      createdAt: data['createdAt'] ?? Timestamp.now(),
     );
   }
 }

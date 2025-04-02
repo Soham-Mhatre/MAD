@@ -8,16 +8,30 @@ class AuthService {
   Future<User?> signUp(String email, String password, String name) async {
     try {
       UserCredential result = await _auth.createUserWithEmailAndPassword(
-          email: email,
-          password: password
+        email: email,
+        password: password,
       );
 
-      // Create default watchlist
-      await _firestore.collection('users/${result.user!.uid}/watchlists').add({
+      // Create user document with valid timestamp
+      await _firestore.collection('users').doc(result.user!.uid).set({
+        'uid': result.user!.uid,
+        'email': email,
+        'createdAt': FieldValue.serverTimestamp(), // Valid in set()
+        'defaultWatchlist': null,
+      });
+
+      // Create watchlist with valid timestamp
+      final watchlistRef = await _firestore
+          .collection('users/${result.user!.uid}/watchlists')
+          .add({
         'name': 'My First Watchlist',
         'items': [],
         'sortOrder': 'manual',
-        'createdAt': FieldValue.serverTimestamp()
+        'createdAt': FieldValue.serverTimestamp(), // Valid in add()
+      });
+
+      await _firestore.collection('users').doc(result.user!.uid).update({
+        'defaultWatchlist': watchlistRef.id
       });
 
       return result.user;
@@ -26,6 +40,8 @@ class AuthService {
       return null;
     }
   }
+
+
   Future<User?> signIn(String email, String password) async {
     try {
       UserCredential result = await _auth.signInWithEmailAndPassword(
@@ -33,12 +49,7 @@ class AuthService {
         password: password.trim(),
       );
 
-      // Verify user document exists
-      DocumentSnapshot userDoc = await _firestore
-          .collection('users')
-          .doc(result.user?.uid)
-          .get();
-
+      final userDoc = await _firestore.collection('users').doc(result.user?.uid).get();
       if (!userDoc.exists) {
         await _firestore.collection('users').doc(result.user?.uid).set({
           'uid': result.user?.uid,
@@ -50,7 +61,7 @@ class AuthService {
       return result.user;
     } on FirebaseAuthException catch (e) {
       print('Login Error: ${e.code} - ${e.message}');
-      rethrow; // For error handling in UI
+      rethrow;
     } catch (e) {
       print('General Error: $e');
       return null;

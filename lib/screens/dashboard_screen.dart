@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,6 +7,7 @@ import '../services/stock_service.dart';
 import '../services/watchlist_service.dart';
 import '../widgets/stock_card.dart';
 import 'profile_screen.dart';
+import 'watchlist_management_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -20,9 +22,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _selectedWatchlistId;
 
   @override
-  void dispose() {
-    _stockController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _loadDefaultWatchlist();
+  }
+
+  Future<void> _loadDefaultWatchlist() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      if (userDoc.exists) {
+        setState(() {
+          _selectedWatchlistId = userDoc['defaultWatchlist'];
+        });
+      }
+    }
   }
 
   @override
@@ -34,6 +52,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       appBar: AppBar(
         title: const Text('Dashboard'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.list),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const WatchlistManagementScreen()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.person),
             onPressed: () => Navigator.push(
@@ -120,20 +145,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
             .doc(_selectedWatchlistId)
             .snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (!snapshot.hasData || !snapshot.data!.exists) {
-            return const Center(child: Text('No items in this watchlist'));
+          final data = snapshot.data!.data() as Map<String, dynamic>?;
+          if (data == null) {
+            return const Center(child: Text('Watchlist not found'));
           }
 
-          final data = snapshot.data!.data() as Map<String, dynamic>;
           final items = List<Map<String, dynamic>>.from(data['items'] ?? []);
-
-          if (items.isEmpty) {
-            return const Center(child: Text('Add stocks to get started'));
-          }
 
           return ListView.builder(
             itemCount: items.length,
@@ -144,29 +165,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
               return FutureBuilder<Map<String, dynamic>>(
                 future: _stockService.getStockData(symbol),
                 builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return StockCard(symbol: symbol);
-                  }
-
-                  if (snapshot.hasError) {
-                    return StockCard(
-                      symbol: symbol,
-                      error: 'Failed to load data',
-                    );
-                  }
-
                   final quote = snapshot.data?['Global Quote'];
-                  if (quote == null) {
-                    return StockCard(
-                      symbol: symbol,
-                      error: 'Invalid symbol',
-                    );
-                  }
+                  final error = snapshot.data?['error'];
 
                   return StockCard(
                     symbol: symbol,
-                    price: quote['05. price'],
-                    change: quote['09. change'],
+                    price: quote?['05. price'],
+                    change: quote?['09. change'],
+                    error: error,
                     type: item['type']?.toString() ?? 'stock',
                   );
                 },
@@ -176,24 +182,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         },
       ),
     );
-  }
-
-  Future<void> _createDefaultWatchlist(String userId) async {
-    try {
-      final watchlistRef = FirebaseFirestore.instance
-          .collection('users/$userId/watchlists')
-          .doc();
-
-      await watchlistRef.set({
-        'name': 'My Watchlist',
-        'items': [],
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      setState(() => _selectedWatchlistId = watchlistRef.id);
-    } catch (e) {
-      print('Error creating default watchlist: $e');
-    }
   }
 
   void _showAddStockDialog(BuildContext context, User? user) {
@@ -213,17 +201,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   controller: _stockController,
                   decoration: InputDecoration(
                     labelText: 'Stock Symbol',
-                    hintText: 'e.g., AAPL, GOOGL',
+                    hintText: 'e.g., AAPL, MSFT',
                     errorText: errorMessage,
-                    border: const OutlineInputBorder(),
+                    counterText: 'Uppercase letters only',
                   ),
                   textCapitalization: TextCapitalization.characters,
+                  maxLength: 5,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[A-Z]')),
+                  ],
                 ),
-                if (isLoading)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 16),
-                    child: CircularProgressIndicator(),
-                  ),
+                if (isLoading) const CircularProgressIndicator(),
               ],
             ),
             actions: [
@@ -233,8 +221,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               ElevatedButton(
                 onPressed: isLoading ? null : () async {
-                  final symbol = _stockController.text.trim().toUpperCase();
-                  if (symbol.isEmpty || user == null || _selectedWatchlistId == null) return;
+                  final symbol = _stockController.text.trim();
+
+                  // Enhanced validation
+                  if (symbol.isEmpty) {
+                    setState(() => errorMessage = 'Enter a symbol');
+                    return;
+                  }
+                  if (symbol.length < 2 || symbol.length > 5) {
+                    setState(() => errorMessage = 'Invalid symbol length');
+                    return;
+                  }
 
                   setState(() {
                     isLoading = true;
@@ -243,12 +240,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                   try {
                     final stockData = await _stockService.getStockData(symbol);
-                    if (stockData['Global Quote'] == null) {
-                      throw Exception('Invalid stock symbol');
+
+                    if (stockData.containsKey('error')) {
+                      throw Exception(stockData['error']);
                     }
 
                     await context.read<WatchlistService>().addToWatchlist(
-                      userId: user.uid,
+                      userId: user!.uid,
                       watchlistId: _selectedWatchlistId!,
                       symbol: symbol,
                       type: 'stock',
@@ -260,7 +258,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     setState(() {
                       errorMessage = e.toString().replaceAll('Exception: ', '');
                     });
-                    print('Add Stock Error: $e');
                   } finally {
                     setState(() => isLoading = false);
                   }
@@ -272,5 +269,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
         },
       ),
     );
+  }
+
+  Future<void> _createDefaultWatchlist(String userId) async {
+    try {
+      final watchlistRef = FirebaseFirestore.instance
+          .collection('users/$userId/watchlists')
+          .doc();
+
+      // Use FieldValue.serverTimestamp() for document creation
+      await watchlistRef.set({
+        'name': 'My Watchlist',
+        'items': [],
+        'createdAt': FieldValue.serverTimestamp(), // Valid in set()
+      });
+
+      setState(() => _selectedWatchlistId = watchlistRef.id);
+    } catch (e) {
+      print('Error creating default watchlist: $e');
+    }
   }
 }

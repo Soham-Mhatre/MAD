@@ -5,6 +5,7 @@ import 'package:madproject/screens/dashboard_screen.dart';
 import 'package:madproject/screens/login_screen.dart';
 import 'package:madproject/screens/signup_screen.dart';
 import 'package:madproject/screens/ticker_detail_screen.dart';
+import 'package:madproject/screens/watchlist_management_screen.dart';
 import 'package:madproject/services/stock_service.dart';
 import 'package:provider/provider.dart';
 import 'auth/auth_services.dart';
@@ -41,7 +42,10 @@ class MyApp extends StatelessWidget {
           '/dashboard': (context) => DashboardScreen(),
           '/ticker': (context) => TickerDetailScreen(
           symbol: ModalRoute.of(context)!.settings.arguments as String,
-          ),},
+          ),
+          '/manage-watchlists': (context) => const WatchlistManagementScreen(),
+
+      },
       ),
     );
   }
